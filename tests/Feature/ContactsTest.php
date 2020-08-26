@@ -7,6 +7,7 @@ use App\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\WithFaker;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 class ContactsTest extends TestCase
@@ -32,8 +33,9 @@ class ContactsTest extends TestCase
         $anotherContact = factory(Contact::class)->create(['user_id' => $anotherUser->id]);
 
         $response = $this->get('api/contacts?api_token=' . $user->api_token);
-
-        $response->assertJsonCount(1)->assertJson([['id' => $contact->id]]);
+        $response->assertJsonCount(1)->assertJson([
+            "data" => [['contact_id' => $contact->id]]
+        ]);
     }
 
 
@@ -48,13 +50,21 @@ class ContactsTest extends TestCase
     /** @test */
     public function an_authenticated_user_can_add_contact()
     {
-        $this->post('/api/contacts', $this->data());
+
+        $response = $this->post('/api/contacts', $this->data());
         $contact = Contact::first();
 
         $this->assertEquals('test name', $contact->name);
         $this->assertEquals('test@gmail.com', $contact->email);
         $this->assertEquals('05-03-1998', $contact->birthday->format('m-d-Y'));
         $this->assertEquals('ABC String', $contact->company);
+        $response->assertStatus(Response::HTTP_CREATED);
+        $response->assertJson([
+            'data' => ['contact_id' => $contact->id],
+            'links' => [
+                'self' => url('contacts/' . $contact->id)
+            ]
+        ]);
     }
 
 
@@ -69,8 +79,6 @@ class ContactsTest extends TestCase
             }
         );
     }
-
-
 
     /** @test */
     public function a_email_must_valid_email()
@@ -96,11 +104,16 @@ class ContactsTest extends TestCase
         $contact = factory(Contact::class)->create(['user_id' => $this->user->id]);
 
         $response = $this->get('/api/contacts/' . $contact->id . '?api_token=' . $this->user->api_token);
+        // dd(json_decode($response->getContent()));
         $response->assertJsonFragment([
-            'name' => $contact->name,
-            'email' => $contact->email,
-            'birthday' => $contact->birthday,
-            'company' => $contact->company
+            'data' => [
+                'contact_id' => $contact->id,
+                'name' => $contact->name,
+                'email' => $contact->email,
+                'birthday' => $contact->birthday->format('d/m/Y'),
+                'company' => $contact->company,
+                'last_update' => $contact->updated_at->diffForHumans()
+            ]
         ]);
     }
 
@@ -117,8 +130,8 @@ class ContactsTest extends TestCase
     /** @test */
     public function contact_can_be_put()
     {
-        $this->withoutExceptionHandling();
-        $contact = factory(Contact::class)->create();
+
+        $contact = factory(Contact::class)->create(['user_id' => $this->user->id]);
 
         $response = $this->put('/api/contacts/' . $contact->id, $this->data());
 
@@ -131,14 +144,36 @@ class ContactsTest extends TestCase
     }
 
     /** @test */
+    public function only_the_owner_of_the_contact_can_put()
+    {
+        $contact = factory(Contact::class)->create();
+        $anotherUser = factory(user::class)->create();
+
+        $response = $this->put('/api/contacts/' . $contact->id, array_merge($this->data(), ['api_token' => $anotherUser->api_token]));
+
+        $response->assertStatus(403);
+    }
+
+    /** @test */
     public function a_contact_can_be_deleted()
     {
-        $this->withoutExceptionHandling();
-        $contact = factory(Contact::class)->create();
+        $contact = factory(Contact::class)->create(['user_id' => $this->user->id]);
 
         $response = $this->delete('/api/contacts/' . $contact->id, ['api_token' => $this->user->api_token]);
 
         $this->assertCount(0, Contact::all());
+    }
+
+    /** @test */
+    public function owner_can_delete_contact()
+    {
+        $contact = factory(Contact::class)->create();
+        $anotherUser = factory(user::class)->create();
+
+
+        $response = $this->delete('/api/contacts/' . $contact->id, ['api_token' => $anotherUser->api_token]);
+
+        $response->assertStatus(403);
     }
 
     public function data()

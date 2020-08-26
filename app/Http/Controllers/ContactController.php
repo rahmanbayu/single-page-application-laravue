@@ -3,33 +3,41 @@
 namespace App\Http\Controllers;
 
 use App\Contact;
+use App\Http\Resources\Contact as ResourcesContact;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class ContactController extends Controller
 {
 
     public function index()
     {
-        return request()->user()->contacts;
+        $this->authorize('viewAny', Contact::class);
+        return ResourcesContact::collection(request()->user()->contacts);
     }
 
     public function store()
     {
-        Contact::create($this->validateData());
+        $this->authorize('create', Contact::class);
+        $contact = request()->user()->contacts()->create($this->validateData());
+
+        return (new ResourcesContact($contact))->response()->setStatusCode(Response::HTTP_CREATED);
     }
+
     public function show(Contact $contact)
     {
-        if (request()->user()->isNot($contact->user)) {
-            return response([], 403);
-        }
+        $this->authorize('view', $contact);
+        return new ResourcesContact($contact);
     }
 
     public function update(Contact $contact)
     {
+        $this->authorize('update', $contact);
         $contact->update($this->validateData());
     }
     public function destroy(Contact $contact)
     {
+        $this->authorize('delete', $contact);
         $contact->delete();
     }
 
